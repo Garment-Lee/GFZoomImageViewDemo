@@ -5,9 +5,38 @@
     android:layout_height="match_parent"
     tools:context="com.ligf.gfzoomimageviewdemo.MainActivity">
 
-    <com.ligf.gfzoomimageviewdemo.widget.GFZoomImageView
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/btn_save"
+        android:text="save"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"/>
+
+    <com.ligf.gfzoomimageviewdemo.widget.GFDrawingImageView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:id="@+id/img_zoom"
+        android:id="@+id/img_drawing"
         android:layout_centerInParent="true"/>
+
+    <!--<com.ligf.gfzoomimageviewdemo.widget.GFZoomImageView-->
+        <!--android:layout_width="match_parent"-->
+        <!--android:layout_height="match_parent"-->
+        <!--android:id="@+id/img_zoom"-->
+        <!--android:layout_centerInParent="true"/>-->
+
+    <com.ligf.gfzoomimageviewdemo.widget.GFLargeImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:id="@+id/img_large"
+        android:layout_centerInParent="true"
+        android:visibility="gone"/>
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:id="@+id/img_show"
+        android:visibility="gone"/>
+
+
 </RelativeLayout>

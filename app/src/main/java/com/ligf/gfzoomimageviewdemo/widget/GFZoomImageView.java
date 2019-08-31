@@ -1,5 +1,7 @@
 package com.ligf.gfzoomimageviewdemo.widget;
 
+import android.animation.Animator;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Matrix;
 import android.graphics.PointF;
@@ -11,36 +13,82 @@ import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
-import android.view.animation.AccelerateDecelerateInterpolator;
-import android.widget.ImageView;
 
 /**
  * Created by ligf on 2017/2/7.
  */
-public class GFZoomImageView extends ImageView{
+public class GFZoomImageView extends android.support.v7.widget.AppCompatImageView {
 
     private final String TAG = getClass().getName();
     private Context mContext = null;
     private enum State {NONE, DRAG, ZOOM, ANIMATE_ZOOM}
-    private State mState = State.NONE;
-    private Matrix mMatrix = null;
-    private ScaleType mScaleType = null;
-    private int mViewWidth;
-    private int mViewHeight;
-    private float mMatchViewWidth;
-    private float mMatchViewHeight;
-    private float mNormalScale;
+
     /**
-     * the min scale size of the image
+     * 图片操作状态（拖动、缩放、正在播放缩放动画、无状态）
+     */
+    private State mState = State.NONE;
+
+    /**
+     * 当前缩放图片矩阵
+     */
+    private Matrix mImageMatrix = null;
+
+    /**
+     * ImageView的缩放类型
+     */
+    private ScaleType mScaleType = null;
+
+    /**
+     * ImageView的宽度
+     */
+    private int mViewWidth;
+
+    /**
+     * ImageView的高度
+     */
+    private int mViewHeight;
+
+    /**
+     * 原始图片宽度
+     */
+    private int mOriginalImageWidth;
+
+    /**
+     * 原始图片高度
+     */
+    private int mOriginalImageHeight;
+
+    /**
+     * 初始缩放大小值
+     */
+    private float mInitialScale;
+
+    /**
+     * 图片最小的缩放数值（相对图片初始完整显示在View中来说）
      */
     private float mMinScale;
+
     /**
-     * the max scale size of the image
+     * 图片最大的缩放数值（相对图片初始完整显示在View中来说）
      */
     private float mMaxScale;
+
+    /**
+     * 当前的缩放倍数
+     */
+    private float mCurrentScale;
+
+    /**
+     * 缩放手势检测器
+     */
     private ScaleGestureDetector mScaleGestureDetector = null;
+
+    /**
+     * 手势检测器
+     */
     private GestureDetector mGestureDetector = null;
-    private float[] m;
+
+    private float[] matrixValues;
 
     public GFZoomImageView(Context context) {
         super(context);
@@ -57,30 +105,9 @@ public class GFZoomImageView extends ImageView{
         init(context);
     }
 
-    private void init(Context context){
-        this.mContext = context;
-        mMatrix = new Matrix();
-        mScaleType = ScaleType.MATRIX;
-        setScaleType(mScaleType);
-        setImageMatrix(mMatrix);
-        setState(State.NONE);
-        mNormalScale = 1.0f;
-        mMinScale = 0.75f;
-
-        /**
-         * the max scale size of the image
-         */
-        mMaxScale = 6.0f;
-        mScaleGestureDetector = new ScaleGestureDetector(mContext, new ZoomImageViewScaleGestureListener());
-        mGestureDetector = new GestureDetector(new ZoomImageViewGestureListener());
-        m = new float[9];
-        super.setOnTouchListener(new ZoomImageViewOnTouchListener());
-    }
-
-    private void setState(State state){
-        mState = state;
-    }
-
+    /**
+     * 触屏事件监听器
+     */
     private class ZoomImageViewOnTouchListener implements OnTouchListener{
 
         private PointF startPoint = new PointF();
@@ -88,10 +115,11 @@ public class GFZoomImageView extends ImageView{
 
         @Override
         public boolean onTouch(View v, MotionEvent event) {
-            mScaleGestureDetector.onTouchEvent(event);
-            mGestureDetector.onTouchEvent(event);
+            mScaleGestureDetector.onTouchEvent(event); //缩放监听
+            mGestureDetector.onTouchEvent(event); //双击屏幕监听
             endPoint.set(event.getX(), event.getY());
-            if (mState == State.NONE || mState == State.DRAG){
+            //进入拖动模式
+            if (mState == State.NONE || mState == State.DRAG){  //拖动事件
                 switch (event.getAction()){
                     case MotionEvent.ACTION_DOWN:
                         setState(State.DRAG);
@@ -100,11 +128,11 @@ public class GFZoomImageView extends ImageView{
                     case MotionEvent.ACTION_MOVE:
                         if (mState == State.DRAG){
                             float deltaX = endPoint.x - startPoint.x;
-                            float deltaY = endPoint.y - endPoint.y;
+                            float deltaY = endPoint.y - startPoint.y;
 
                             float fixX = getFixDragTrans(deltaX, getImageWidth(), mViewWidth);
                             float fixY = getFixDragTrans(deltaY, getImageHeight(), mViewHeight);
-                            mMatrix.postTranslate(fixX, fixY);
+                            mImageMatrix.postTranslate(fixX, fixY);
                             fixTrans();
                             startPoint.set(endPoint);
                         }
@@ -116,45 +144,23 @@ public class GFZoomImageView extends ImageView{
                         break;
                 }
             }
-            setImageMatrix(mMatrix);
+            setImageMatrix(mImageMatrix);
             return true;
         }
     }
 
-    private float getFixDragTrans(float delta, float contentSize, float viewSize){
-        if (contentSize < viewSize){
-            return 0;
-        }
-        return delta;
-    }
-
-    private class ZoomImageViewScaleGestureListener extends ScaleGestureDetector.SimpleOnScaleGestureListener{
-        @Override
-        public boolean onScaleBegin(ScaleGestureDetector detector) {
-            setState(State.ZOOM);
-            return true;
-        }
-
-        @Override
-        public boolean onScale(ScaleGestureDetector detector) {
-            scaleImage(detector.getScaleFactor(), detector.getFocusX(), detector.getFocusY());
-            return true;
-        }
-
-        @Override
-        public void onScaleEnd(ScaleGestureDetector detector) {
-            super.onScaleEnd(detector);
-            setState(State.NONE);
-            float targetZoom = mNormalScale;
-            if (mNormalScale > mMaxScale){
-                targetZoom = mMaxScale;
-            }
-            if (mNormalScale < 1){
-                targetZoom = 1;
-            }
-            DoubleTapZoom doubleTapZoom = new DoubleTapZoom(targetZoom, mViewWidth / 2, mViewHeight /2);
-            compatPostOnAnimation(doubleTapZoom);
-        }
+    private void init(Context context){
+        this.mContext = context;
+        mImageMatrix = new Matrix();
+        mScaleType = ScaleType.MATRIX;
+        //设置图片缩放类型
+        setScaleType(mScaleType);
+        setImageMatrix(mImageMatrix);
+        setState(State.NONE);
+        mScaleGestureDetector = new ScaleGestureDetector(mContext, new ZoomImageViewScaleGestureListener());
+        mGestureDetector = new GestureDetector(new ZoomImageViewGestureListener());
+        matrixValues = new float[9];
+        setOnTouchListener(new ZoomImageViewOnTouchListener());
     }
 
     @Override
@@ -170,9 +176,11 @@ public class GFZoomImageView extends ImageView{
         int widthMode = MeasureSpec.getMode(widthMeasureSpec);
         int heightSize = MeasureSpec.getSize(heightMeasureSpec);
         int heightMode = MeasureSpec.getMode(heightMeasureSpec);
+        Log.i(TAG, "onMeasure111 width:" + getWidth() + ",height:" + getHeight());
         mViewWidth = getViewSize(widthMode, widthSize, drawableWidth);
         mViewHeight = getViewSize(heightMode, heightSize, drawableHeight);
         setMeasuredDimension(mViewWidth, mViewHeight);
+        Log.i(TAG, "onMeasure222 width:" + getWidth() + ",height:" + getHeight());
         fitImageToView();
     }
 
@@ -202,160 +210,163 @@ public class GFZoomImageView extends ImageView{
     }
 
     /**
-     * fit the image to the center of the view
+     * 初始化图片显示到View中，完整居中显示图片
      */
     private void fitImageToView(){
         Drawable drawable = getDrawable();
         if (drawable == null || drawable.getIntrinsicWidth() == 0 || drawable.getIntrinsicHeight() == 0){
             return;
         }
-        if (mMatrix == null){
+        if (mImageMatrix == null){
             return;
         }
-        int drawableWidth = drawable.getIntrinsicWidth();
-        int drawableHeight = drawable.getIntrinsicHeight();
-        float scaleX = (float) mViewWidth / drawableWidth;
+        //原始图片的长度
+        mOriginalImageWidth = drawable.getIntrinsicWidth();
+        //原始图片的高度
+        mOriginalImageHeight = drawable.getIntrinsicHeight();
+        //初始缩放大小
+        float scaleX = (float) mViewWidth / mOriginalImageWidth;
         float scaleY = scaleX;
-        float XSpace = mViewWidth - scaleX * drawableWidth;
-        float YSpace = mViewHeight - scaleY * drawableHeight;
-        mMatchViewWidth = mViewWidth - XSpace;
-        mMatchViewHeight = mViewHeight - YSpace;
-        mMatrix.setScale(scaleX, scaleY);
-        if (mMatchViewHeight > mViewHeight){
-            mMatrix.postTranslate(0, 0);
+        Log.i(TAG, "fitImageToView scaleX:" + scaleX);
+        //算出缩放后的图片是否需要平移，居中显示图片
+        float XSpace = mViewWidth - scaleX * mOriginalImageWidth;
+        float YSpace = mViewHeight - scaleY * mOriginalImageHeight;
+        float matchViewWidth = mViewWidth - XSpace;
+        float matchViewHeight = mViewHeight - YSpace;
+        mImageMatrix.setScale(scaleX, scaleY);
+        mCurrentScale = scaleX;
+        mInitialScale = scaleX;
+        mMinScale = mInitialScale * 0.7f;
+        mMaxScale = mInitialScale * 6;
+        if (matchViewHeight > mViewHeight){
+            mImageMatrix.postTranslate(0, 0);
         } else {
-            mMatrix.postTranslate(XSpace / 2, YSpace / 2);
+            mImageMatrix.postTranslate(XSpace / 2, YSpace / 2);
         }
-        setImageMatrix(mMatrix);
+        setImageMatrix(mImageMatrix);
     }
 
     /**
-     * scale the image
+     * 设置图片的缩放比例
      * @param deltaScale
      * @param focusX
      * @param focusY
      */
     private void scaleImage(double deltaScale, float focusX, float focusY){
-        float originalScale = mNormalScale;
-        mNormalScale *= deltaScale;
-        if (mNormalScale > mMaxScale){
-            mNormalScale = mMaxScale;
-            deltaScale = mMaxScale / originalScale;
-        }
-        if (mNormalScale < mMinScale){
-            mNormalScale = mMinScale;
-            deltaScale = mMinScale / originalScale;
-        }
         fixScaleTranslate();
         Log.i(TAG, "focusX: " + focusX + ";focusY: " + focusY);
-        mMatrix.postScale((float) deltaScale, (float) deltaScale, focusX, focusY);
-//        mMatrix.postScale((float) deltaScale, (float) deltaScale);
+        float[] imageMatrix = new float[9];
+        mImageMatrix.getValues(imageMatrix);
+        Log.i(TAG, "scaleImage before scale scaleX:" + imageMatrix[Matrix.MSCALE_X] + ", scaleY:" + imageMatrix[Matrix.MSCALE_Y] + ",transX:" + imageMatrix[Matrix.MTRANS_X] + ",transY:" + imageMatrix[Matrix.MTRANS_Y]);
+        mImageMatrix.postScale((float) deltaScale, (float) deltaScale, focusX, focusY);
+        mImageMatrix.getValues(imageMatrix);
+        Log.i(TAG, "scaleImage after scale scaleX:" + imageMatrix[Matrix.MSCALE_X] + ", scaleY:" + imageMatrix[Matrix.MSCALE_Y] + ",transX:" + imageMatrix[Matrix.MTRANS_X] + ",transY:" + imageMatrix[Matrix.MTRANS_Y]);
+        mCurrentScale = imageMatrix[Matrix.MSCALE_X];
+        Log.i(TAG, "scaleImage scaleX:" + imageMatrix[Matrix.MSCALE_X] + ",scaleY:" + imageMatrix[Matrix.MSCALE_Y]);
+        fixScaleTranslate();
+        //刷新图片
+        setImageMatrix(mImageMatrix);
     }
 
     /**
-     * fit the image to the center of the view after scaling
+     * 修复缩放后的图片的位置
      */
     private void fixScaleTranslate(){
         fixTrans();
-        mMatrix.getValues(m);
-        Log.i(TAG, "fixScaleTranslate trans_x:" + m[Matrix.MTRANS_X] + ";trans_y:" + m[Matrix.MTRANS_Y]);
+        mImageMatrix.getValues(matrixValues);
+        Log.i(TAG, "fixScaleTranslate trans_x:" + matrixValues[Matrix.MTRANS_X] + ";trans_y:" + matrixValues[Matrix.MTRANS_Y]);
+        //图片大小小于ImageView时，居中显示缩放后的图片
         if (getImageWidth() < mViewWidth){
-            m[Matrix.MTRANS_X] = (mViewWidth - getImageWidth()) / 2;
+            matrixValues[Matrix.MTRANS_X] = (mViewWidth - getImageWidth()) / 2;
         }
         if (getImageHeight() < mViewHeight){
-            m[Matrix.MTRANS_Y] = (mViewHeight - getImageHeight()) / 2;
+            Log.i(TAG, "fixScaleTranslate getImageHeight() < mViewHeight mViewHeight:" + mViewHeight + ",ImageHeight:" + getImageHeight());
+            matrixValues[Matrix.MTRANS_Y] = (mViewHeight - getImageHeight()) / 2;
+            Log.i(TAG, "fixScaleTranslate MTRANS_Y:" + matrixValues[Matrix.MTRANS_Y]);
         }
-        mMatrix.setValues(m);
+        mImageMatrix.setValues(matrixValues);
     }
 
+    /**
+     * 移动缩放后的图片，保持图片缩放后还是占满ImageView
+     */
     private void fixTrans() {
-        mMatrix.getValues(m);
-        float transX = m[Matrix.MTRANS_X];
-        float transY = m[Matrix.MTRANS_Y];
+        mImageMatrix.getValues(matrixValues);
+        float transX = matrixValues[Matrix.MTRANS_X];
+        float transY = matrixValues[Matrix.MTRANS_Y];
 
         float fixTransX = getFixTrans(transX, mViewWidth, getImageWidth());
         float fixTransY = getFixTrans(transY, mViewHeight, getImageHeight());
 
         if (fixTransX != 0 || fixTransY != 0) {
-            mMatrix.postTranslate(fixTransX, fixTransY);
+            mImageMatrix.postTranslate(fixTransX, fixTransY);
         }
     }
 
+    /**
+     * 得到缩放后的图片需要修复的位移
+     * @param trans 当前图片的位移大小
+     * @param viewSize ImageView的尺寸
+     * @param contentSize 缩放后的图片的尺寸
+     * @return
+     */
     private float getFixTrans(float trans, float viewSize, float contentSize) {
         float minTrans, maxTrans;
 
         if (contentSize <= viewSize) {
             minTrans = 0;
             maxTrans = viewSize - contentSize;
-
         } else {
             minTrans = viewSize - contentSize;      //image内容大于view
             maxTrans = 0;
         }
 
         if (trans < minTrans)
-            return -trans + minTrans;     //缩小时或者拖动时，防止超出右侧边界（向右移动）（下侧同理）
+            return -trans + minTrans;     //缩小时或者拖动时，防止超出右侧边界（防止右边出现空白，向右移动）（下侧同理）
         if (trans > maxTrans)
-            return -trans + maxTrans;       //缩小时或者拖动时，防止超出左侧边界（向左移动）（上侧同理）
+            return -trans + maxTrans;       //缩小时或者拖动时，防止超出左侧边界（防止左边出现空白，向左移动）（上侧同理）
         return 0;
     }
 
+    private void setState(State state){
+        mState = state;
+    }
+
+    /**
+     * 获取拖动位移
+     * @param delta
+     * @param contentSize
+     * @param viewSize
+     * @return
+     */
+    private float getFixDragTrans(float delta, float contentSize, float viewSize){
+        if (contentSize < viewSize){
+            return 0;
+        }
+        return delta;
+    }
+
+    /**
+     * 获取当前图片的宽度
+     * @return
+     */
     private float getImageWidth(){
-        return mNormalScale * mMatchViewWidth;
+        return mCurrentScale * mOriginalImageWidth;
     }
 
+    /**
+     * 获取当前图片的高度
+     * @return
+     */
     private float getImageHeight(){
-        return mNormalScale * mMatchViewHeight;
+        return mCurrentScale * mOriginalImageHeight;
     }
 
-    private class DoubleTapZoom implements Runnable{
-
-        private long startTime;
-        private static final float ZOOM_TIME = 500;
-        private float startZoom;
-        private float targetZoom;
-        private float focusX;
-        private float focusY;
-        private AccelerateDecelerateInterpolator interpolator = new AccelerateDecelerateInterpolator();
-
-        public DoubleTapZoom(float targetZoom, float focusX, float focusY){
-            startTime = System.currentTimeMillis();
-            startZoom = mNormalScale;
-            this.targetZoom = targetZoom;
-            this.focusX = focusX;
-            this.focusY = focusY;
-        }
-
-        @Override
-        public void run() {
-            setState(State.ANIMATE_ZOOM);
-            float t = interpolate();
-            Log.i(TAG, "run t:" + t);
-            double deltaScale = calculateDeltaScale(t);
-            scaleImage(deltaScale, focusX, focusY);
-            fixScaleTranslate();
-            setImageMatrix(mMatrix);
-            if (t < 1f){
-                compatPostOnAnimation(this);
-            } else {
-                setState(State.NONE);
-            }
-        }
-
-        private float interpolate() {
-            long currTime = System.currentTimeMillis();
-            float elapsed = (currTime - startTime) / ZOOM_TIME;
-            elapsed = Math.min(1f, elapsed);
-            return interpolator.getInterpolation(elapsed);
-        }
-
-        private double calculateDeltaScale(float t) {
-            double zoom = startZoom + t * (targetZoom - startZoom);
-            return zoom / mNormalScale;
-        }
-    }
-
-    private void compatPostOnAnimation(Runnable runnable) {
+    /**
+     * 执行动画
+     * @param runnable
+     */
+    private void  compatPostOnAnimation(Runnable runnable) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
             postOnAnimation(runnable);
         } else {
@@ -363,17 +374,121 @@ public class GFZoomImageView extends ImageView{
         }
     }
 
+    /**
+     * 手势监听器，主要用来监听双击屏幕的动作
+     */
     private class ZoomImageViewGestureListener extends GestureDetector.SimpleOnGestureListener{
         @Override
         public boolean onDoubleTap(MotionEvent e) {
             boolean consumed = false;
             if (mState == State.NONE){
-                float targetZoom = (mNormalScale == 1) ? mMaxScale : 1;
-                DoubleTapZoom doubleTapZoom = new DoubleTapZoom(targetZoom, e.getX(), e.getY());
+                float targetScale = (mCurrentScale == mInitialScale) ? mMaxScale : mInitialScale;
+                DoubleTapZoom doubleTapZoom = new DoubleTapZoom(targetScale, e.getX(), e.getY());
                 compatPostOnAnimation(doubleTapZoom);
                 consumed = true;
             }
             return consumed;
+        }
+    }
+
+    /**
+     * 缩放手势监听器
+     */
+    private class ZoomImageViewScaleGestureListener extends ScaleGestureDetector.SimpleOnScaleGestureListener{
+        @Override
+        public boolean onScaleBegin(ScaleGestureDetector detector) {
+            Log.i(TAG, "### onScaleBegin....");
+            setState(State.ZOOM);
+            return true;
+        }
+
+        @Override
+        public boolean onScale(ScaleGestureDetector detector) {
+            Log.i(TAG, "### onScale....");
+
+            scaleImage(detector.getScaleFactor(), detector.getFocusX(), detector.getFocusY());
+            return true;
+        }
+
+        @Override
+        public void onScaleEnd(ScaleGestureDetector detector) {
+            super.onScaleEnd(detector);
+            setState(State.NONE);
+            Log.i(TAG, "### onScaleEnd....");
+            float targetZoom = mCurrentScale;
+            //缩放倍数大于最大的倍数
+            if (mCurrentScale > mMaxScale){
+                targetZoom = mMaxScale;
+            }
+            //缩放图片倍数小于初始值
+            if (mCurrentScale < mInitialScale){
+                targetZoom = mInitialScale;
+            }
+            DoubleTapZoom doubleTapZoom = new DoubleTapZoom(targetZoom, mViewWidth / 2, mViewHeight /2);
+            compatPostOnAnimation(doubleTapZoom);
+        }
+    }
+
+    /**
+     * 执行图片缩放动画Runnable
+     */
+    private class DoubleTapZoom implements Runnable{
+
+        /**
+         * 起始缩放大小值
+         */
+        private float startScale;
+        /**
+         * 目标放大倍数
+         */
+        private float targetScale;
+        private float focusX;
+        private float focusY;
+
+        public DoubleTapZoom(float targetScale, float focusX, float focusY){
+            startScale = mCurrentScale;
+            this.targetScale = targetScale;
+            this.focusX = focusX;
+            this.focusY = focusY;
+        }
+
+        @Override
+        public void run() {
+            setState(State.ANIMATE_ZOOM);
+            ValueAnimator valueAnimator = ValueAnimator.ofFloat(startScale, targetScale);
+            valueAnimator.setDuration(500);
+            valueAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator animation) {
+                    //待设置的缩放倍数
+                    float scaleValue = (Float) animation.getAnimatedValue();
+                    //算出deltaScale
+                    float deltaScale = scaleValue / mCurrentScale;
+                    scaleImage(deltaScale, focusX, focusY);
+                }
+            });
+            valueAnimator.addListener(new Animator.AnimatorListener() {
+                @Override
+                public void onAnimationStart(Animator animator) {
+
+                }
+
+                @Override
+                public void onAnimationEnd(Animator animator) {
+                    setState(State.NONE);
+                }
+
+                @Override
+                public void onAnimationCancel(Animator animator) {
+
+                }
+
+                @Override
+                public void onAnimationRepeat(Animator animator) {
+
+                }
+            });
+            valueAnimator.start();
         }
     }
 }
